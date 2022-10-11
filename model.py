@@ -185,14 +185,20 @@ class SRResNet(nn.Module):
                     nn.init.constant_(module.bias, 0)
 
 class Discriminator(nn.Module):
-    def __init__(self):
-       super().__init__()
-       self.cnn = torchvision.models.resnet34(weights=None)
-       self.fc = nn.Sequential(
-                    nn.Linear(1000, 128),
-                    nn.LeakyReLU(0.1, True),
-                    nn.Linear(128, 1),
-                 )
+    def __init__(self, model_type: str="vgg19"):
+        super().__init__()
+        if model_type == "vgg19":
+            self.cnn = torchvision.models.vgg19(weights=None)
+        elif model_type == "resnet34":
+            self.cnn = torchvision.models.resnet34(weights=None)
+        else:
+            raise NotImplementedError
+
+        self.fc = nn.Sequential(
+                     nn.Linear(1000, 128),
+                     nn.LeakyReLU(0.1, True),
+                     nn.Linear(128, 1),
+                  )
 
     def forward(self, x):
         """
