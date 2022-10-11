@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torchvision.models import resnet34, vgg19, VGG19_Weights
 
 class DenseBlock(nn.Module):
     def __init__(self, channels: int, growth_rate: int, dropout: float=0.0, beta: float=0.2):
@@ -161,6 +162,7 @@ class SRResNet(nn.Module):
                             nn.Conv2d(channels, out_channels,
                                       kernel_size=3, stride=1, padding=1),
                         )
+        self.low_init_weights()
 
     def forward(self, x):
         """
@@ -173,3 +175,49 @@ class SRResNet(nn.Module):
         out = self.conv_out(out)
         out = torch.clamp_(out, 0.0, 1.0)
         return out
+
+    def low_init_weights(self):
+        for module in self.modules():
+            if isinstance(module, nn.Conv2d):
+                nn.init.kaiming_normal_(module.weight)
+                module.weight.data *= 0.1
+                if module.bias is not None:
+                    nn.init.constant_(module.bias, 0)
+
+class Discriminator(nn.Module):
+    def __init__(self):
+       super().__init__()
+       self.cnn = torchvision.models.resnet34(weights=None)
+       self.fc = nn.Sequential(
+                    nn.Linear(1000, 128),
+                    nn.LeakyReLU(0.1, True),
+                    nn.Linear(128, 1),
+                 )
+
+    def forward(self, x):
+        """
+        x: (N, C, H, W)
+        out: (N, 1)
+        """
+        out = self.cnn(x)
+        out = out.reshape(out.size(0), -1)
+        out = self.fc(x)
+
+class VGG19(nn.Module):
+    def __init__(self):
+        super().__init__()
+        pre_vgg19 = vgg19(weights=None)
+        # pre_vgg19 = vgg19(weights=VGG19_Weights)
+        self.h_features = pre_vgg19.features[:3]
+        self.l_features = pre_vgg19.features[3:22]
+
+    def forward(self, x):
+        """
+        x: (N, 3, 128, 128)
+        h_out: (N, 64, 128, 128)
+        l_out: (N, 512, 16, 16)
+        """
+        h_out = self.h_features(x)
+        l_out = self.l_features(h_out)
+        print(h_out.shape, l_out.shape)
+        return h_out, l_out
