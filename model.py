@@ -1,0 +1,175 @@
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+class DenseBlock(nn.Module):
+    def __init__(self, channels: int, growth_rate: int, dropout: float=0.0, beta: float=0.2):
+        """
+        channels: input channels, output channels
+        growth_rate: the number of channels that increase in each layer of conv
+        dropout: dropout
+        beta: out = beta * conv(x) + x
+        """
+        super().__init__()
+        self.conv1 = nn.Conv2d(channels + growth_rate * 0, growth_rate,
+                                kernel_size=3, stride=1, padding=1)
+        self.conv2 = nn.Conv2d(channels + growth_rate * 1, growth_rate,
+                                kernel_size=3, stride=1, padding=1)
+        self.conv3 = nn.Conv2d(channels + growth_rate * 2, growth_rate,
+                                kernel_size=3, stride=1, padding=1)
+        self.conv4 = nn.Conv2d(channels + growth_rate * 3, growth_rate,
+                                kernel_size=3, stride=1, padding=1)
+        self.conv5 = nn.Conv2d(channels + growth_rate * 4, channels,
+                                kernel_size=3, stride=1, padding=1)
+        self.lrelu = nn.LeakyReLU(0.1, True)
+        self.dropout = nn.Dropout(p=dropout)
+        self.beta = beta
+
+    def forward(self, x: torch.Tensor):
+        """
+        x: (N, C, H, W)
+        out: (N, C, H, W)
+        """
+        out1 = self.lrelu(self.conv1(x))
+        out2 = self.lrelu(self.conv2(torch.cat((x, out1), dim=1)))
+        out3 = self.lrelu(self.conv3(torch.cat((x, out1, out2), dim=1)))
+        out4 = self.lrelu(self.conv4(torch.cat((x, out1, out2, out3), dim=1)))
+        out5 = self.dropout(self.conv5(torch.cat((x, out1, out2, out3, out4), dim=1)))
+        out = torch.add(x, torch.mul(out5, self.beta))
+        return out
+
+class RRDB(nn.Module):
+    def __init__(self, channels, growth_rate, dropout: float=0.0, beta: float=0.2):
+        """
+        channels: input channels, output channels
+        growth_rate: the number of channels that increase in each layer of conv
+        dropout: dropout
+        beta(for DenseBlock): out = beta * conv(x) + x
+        """
+        super().__init__()
+        self.db1 = DenseBlock(channels, growth_rate, dropout, beta)
+        self.db2 = DenseBlock(channels, growth_rate, dropout, beta)
+        self.db3 = DenseBlock(channels, growth_rate, dropout, beta)
+        self.beta = beta
+
+    def forward(self, x: torch.Tensor):
+        """
+        x: (N, C, H, W)
+        out: (N, C, H, W)
+        """
+        out = self.db1(x)
+        out = self.db2(x)
+        out = self.db3(x)
+        out = torch.add(x, torch.mul(out, self.beta))
+        return out
+
+class ResidualBlock(nn.Module):
+    def __init__(self, in_channels: int, channels: int, bn: bool=False):
+        if bn:
+            self.net = nn.Sequential(
+                nn.Conv2d(in_channels, channels,
+                          kernel_size=3, stride=1, padding=1),
+                nn.BachNorm2d(channels),
+                nn.ReLU(),
+                nn.Conv2d(channels, in_channels,
+                          kernel_size=3, stride=1, padding=1),
+                nn.BachNorm2d(in_channels),
+            )
+        else:
+            self.net = nn.Sequential(
+                nn.Conv2d(in_channels, channels,
+                          kernel_size=3, stride=1, padding=1),
+                nn.ReLU(),
+                nn.Conv2d(channels, in_channels,
+                          kernel_size=3, stride=1, padding=1),
+            )
+
+    def forward(self, x: torch.Tensor):
+        """
+        x: (N, C, H, W)
+        out: (N, C, H, W)
+        """
+        return torch.add(x, self.net(x))
+        
+class Interpolate(nn.Module):
+    def __init__(self, size=None, scale_factor=None, mode="nearest"):
+        """
+        make nn.Module work as torch.nn.functional.interpolate
+        """
+        super().__init__()
+        self.size = size
+        self.scale_factor = scale_factor
+        self.mode = mode
+        
+    def forward(self, x):
+        return F.interpolate(x,
+                             size=self.size,
+                             scale_factor=self.scale_factor,
+                             mode=self.mode)
+        
+class SRResNet(nn.Module):
+    def __init__(self,
+                 in_channels: int=3,
+                 out_channels: int=3,
+                 channels: int=32,
+                 growth_rate: int=32,
+                 dropout: float=0.0,
+                 beta: float=0.2,
+                 num_blocks: int=16,
+                 block_type: str="rrdb",
+                 upscale_factor: int=4):
+        super().__init__()
+        self.conv_in = nn.Conv2d(in_channels, channels,
+                               kernel_size=3, stride=1, padding=1)
+        if block_type == "rrdb":
+            blocks = (RRDB(channels, growth_rate, dropout, beta) for _ in range(num_blocks))
+            self.blocks = nn.Sequential(*blocks)
+        elif block_type == "rb":
+            blocks = (ResidualBlock(channels, channels, bn=False) for _ in range(num_blocks))
+            self.blocks = nn.Sequential(*blocks)
+        elif block_type == "rb_bn":
+            blocks = (ResidualBlock(channels, channels, bn=True) for _ in range(num_blocks))
+            self.blocks = nn.Sequential(*blocks)
+        else:
+            raise NotImplementedError
+
+        if upscale_factor == 2:
+            self.upsample = nn.Sequential(
+                                Interpolate(scale_factor=2, mode="nearest"),    
+                                nn.Conv2d(channels, channels,
+                                          kernel_size=3, stride=1, padding=1),
+                                nn.LeakyReLU(0.1, True),
+                            )
+        elif upscale_factor == 4:
+            self.upsample = nn.Sequential(
+                                Interpolate(scale_factor=2, mode="nearest"),    
+                                nn.Conv2d(channels, channels,
+                                          kernel_size=3, stride=1, padding=1),
+                                nn.LeakyReLU(0.1, True),
+                                Interpolate(scale_factor=2, mode="nearest"),    
+                                nn.Conv2d(channels, channels,
+                                          kernel_size=3, stride=1, padding=1),
+                                nn.LeakyReLU(0.1, True),
+                            )
+        else:
+            raise NotImplementedError
+
+        self.conv_out = nn.Sequential(
+                            nn.Conv2d(channels, channels,
+                                      kernel_size=3, stride=1, padding=1),
+                            nn.LeakyReLU(0.1, True),
+                            nn.Conv2d(channels, out_channels,
+                                      kernel_size=3, stride=1, padding=1),
+                        )
+
+    def forward(self, x):
+        """
+        x: (N, C_in, H, W)
+        out: (N, C_out, upscale_factor * H, upscale_factor * W)
+        """
+        out = self.conv_in(x)
+        out = self.blocks(out)
+        out = self.upsample(out)
+        out = self.conv_out(out)
+        out = torch.clamp_(out, 0.0, 1.0)
+        return out
