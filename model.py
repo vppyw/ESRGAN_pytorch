@@ -225,5 +225,4 @@ class VGG19(nn.Module):
         """
         h_out = self.h_features(x)
         l_out = self.l_features(h_out)
-        print(h_out.shape, l_out.shape)
         return h_out, l_out
