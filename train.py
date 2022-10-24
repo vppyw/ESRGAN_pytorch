@@ -3,9 +3,11 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataloader
-from argparse import ArgumentParser
+from torchmetrics.functional import peak_signal_noise_ratio as PSNR
+from torchmetrics.functional import structural_similarity_index_measure as SSIM
 
-from tqdm import trange 
+from argparse import ArgumentParser
+from tqdm import tqdm
 
 import model
 import hr_dataset
@@ -24,7 +26,7 @@ def save_model(model, device: str, f_name: str):
     torch.save(model, f_name)
     model = model.to(device)
 
-def PNSRtrain(args, model, trainloader, validloader):
+def PSNRtrain(args, model, trainloader, validloader):
     model = model.to(args.device)
     lr = 1e-4
     optim = torch.optim.Adam(model.parameters(), lr=lr)
@@ -120,7 +122,7 @@ def GANtrain(args, gene, disc, extr, trainloader, validloader):
             
         pbar.write(f"|Epoch:{epoch}|Discriminator|\
 train:{train_gan_d_loss.mean()}|\
-valid:{valid_gan_d_loss.mean()}|")
+valid:{valid_gan_d_loss.mean()}|\n")
 
         save_model(disc,
                    args.device,
@@ -185,13 +187,13 @@ valid:{valid_gan_d_loss.mean()}|")
                                              torch.Tensor([perc_loss.item()])))
                 valid_gan_g_loss = torch.cat((valid_gan_g_loss,
                                               torch.Tensor([gan_loss.item()])))
-        pbar.write("|Epoch:{epoch}|Generator|\
-Train: L1 {train_l1_loss.mean()}\
+        pbar.write("|Epoch:{epoch}|Generator|\n")
+        pbar.write("Train: L1 {train_l1_loss.mean()}\
 Perceptual {train_perc_loss.mean()}\
-GAN {train_gan_g_loss.mean()}|\
-Valid: L1 {valid_l1_loss.mean()}\
+GAN {train_gan_g_loss.mean()}|\n")
+        pbar.write("Valid: L1 {valid_l1_loss.mean()}\
 Perceptual {valid_perc_loss.mean()}\
-GAN {valid_gan_g_loss.mean()}|")
+GAN {valid_gan_g_loss.mean()}|\n")
 
         save_model(gene,
                    args.device,
@@ -203,7 +205,8 @@ def main(args):
     validset = hr_dataset(fname=args.valid_dir, mode="valid")
     trainloader = Dataloader(trainset, batchsize=args.batch_size, shuffle=True)
     validloader = Dataloader(validset, batchsize=args.batch_size, shuffle=false)
-    # TODO:Train PNSR model
+    # TODO:Train PSNR model
+    PSNRtrain(args, trainloader, validloader)
     # TODO:Train GAN
 
 def parse_args():
@@ -234,8 +237,8 @@ def parse_args():
         type=str,
         default="_ckpt.pt"
     )
-    # Hyperparameters
 
+    # Hyperparameters
     parser.add_argument(
         "--batch_size",
         type=int,
@@ -243,6 +246,11 @@ def parse_args():
     )
     parser.add_argument(
         "--pnsr_epoch",
+        type=int,
+        default=512,
+    )
+    parser.add_argument(
+        "--gan_epoch",
         type=int,
         default=512,
     )
