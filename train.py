@@ -5,7 +5,7 @@ import torch.nn as nn
 from torch.utils.data import Dataloader
 from argparse import ArgumentParser
 
-from tqdm import trange 
+from tqdm import tqdm
 
 import model
 import hr_dataset
@@ -120,7 +120,7 @@ def GANtrain(args, gene, disc, extr, trainloader, validloader):
             
         pbar.write(f"|Epoch:{epoch}|Discriminator|\
 train:{train_gan_d_loss.mean()}|\
-valid:{valid_gan_d_loss.mean()}|")
+valid:{valid_gan_d_loss.mean()}|\n")
 
         save_model(disc,
                    args.device,
@@ -185,13 +185,13 @@ valid:{valid_gan_d_loss.mean()}|")
                                              torch.Tensor([perc_loss.item()])))
                 valid_gan_g_loss = torch.cat((valid_gan_g_loss,
                                               torch.Tensor([gan_loss.item()])))
-        pbar.write("|Epoch:{epoch}|Generator|\
-Train: L1 {train_l1_loss.mean()}\
+        pbar.write("|Epoch:{epoch}|Generator|\n")
+        pbar.write("Train: L1 {train_l1_loss.mean()}\
 Perceptual {train_perc_loss.mean()}\
-GAN {train_gan_g_loss.mean()}|\
-Valid: L1 {valid_l1_loss.mean()}\
+GAN {train_gan_g_loss.mean()}|\n")
+        pbar.write("Valid: L1 {valid_l1_loss.mean()}\
 Perceptual {valid_perc_loss.mean()}\
-GAN {valid_gan_g_loss.mean()}|")
+GAN {valid_gan_g_loss.mean()}|\n")
 
         save_model(gene,
                    args.device,
