@@ -2,59 +2,59 @@
 
 This repo is my implementation about [ESRGAN](https://github.com/xinntao/ESRGAN) and other related works with pytorch.
 
-##  file sctructure
+## file sctructure
 
-    ```python
-    .
-    ├── ckpt
-    ├── data
-    ├── hr_dataset.py
-    ├── metrics.py
-    ├── README.md
-    ├── requirements.txt
-    ├── sr_models.py
-    ├── train_gan.sh
-    ├── train_psnr.sh
-    └── train.py
-    ```
+  ```python
+  .
+  ├── ckpt
+  ├── data
+  ├── hr_dataset.py
+  ├── metrics.py
+  ├── README.md
+  ├── requirements.txt
+  ├── sr_models.py
+  ├── train_gan.sh
+  ├── train_psnr.sh
+  └── train.py
+  ```
 
 ## Train SISR task
-    - Train PSNR-based model
+  - Train PSNR-based model
 
-        ```bash
-        python3 train.py --model_type psnr
-        ```
+    ```bash
+    python3 train.py --model_type psnr
+    ```
 
-    - Train GAN-based model
+  - Train GAN-based model
 
-        ```bash
-        python3 train.py --model_type gan
-        ```
+    ```bash
+    python3 train.py --model_type gan
+    ```
 
-    - For more details
+  - For more details
 
-        ```bash
-        python3 train.py --help
-        ```
+    ```bash
+    python3 train.py --help
+    ```
 
 ## Evaluate single Image performance (PSNR/SSIM)
 
-    ```bash
-    python3 metrics.py \
-        --lr_img LR_IMG \
-        --hr_img HR_IMG \
-        --load_model \
-        --model MODEL
-    ```
+  ```
+  python3 metrics.py \
+      --lr_img LR_IMG \
+      --hr_img HR_IMG \
+      --load_model \
+      --model MODEL
+  ```
 
-    To see more details.
+  To see more details.
 
-    ```
-    python3 metrics.py --help
-    ```
+  ```
+  python3 metrics.py --help
+  ```
 
 ## package requirements
 
-   ```python
-   pip install -r requirements.txt
-   ```
+  ```
+  pip install -r requirements.txt
+  ```
