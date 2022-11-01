@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torchvision
 from torchvision.models import resnet34, vgg19, VGG19_Weights
 
 class DenseBlock(nn.Module):
@@ -93,7 +94,7 @@ class ResidualBlock(nn.Module):
         return torch.add(x, self.net(x))
         
 class Interpolate(nn.Module):
-    def __init__(self, size=None, scale_factor=None, mode="nearest"):
+    def __init__(self, size=None, scale_factor=None, mode="bicubic"):
         """
         make nn.Module work as torch.nn.functional.interpolate
         """
@@ -207,7 +208,8 @@ class Discriminator(nn.Module):
         """
         out = self.cnn(x)
         out = out.reshape(out.size(0), -1)
-        out = self.fc(x)
+        out = self.fc(out)
+        return out
 
 class VGG19(nn.Module):
     def __init__(self):
