@@ -119,7 +119,8 @@ class SRResNet(nn.Module):
                  beta: float=0.2,
                  num_blocks: int=16,
                  block_type: str="rrdb",
-                 upscale_factor: int=4):
+                 scale_factor: int=4,
+                 upscale_mode: str="nearest"):
         super().__init__()
         self.conv_in = nn.Conv2d(in_channels, channels,
                                kernel_size=3, stride=1, padding=1)
@@ -135,20 +136,20 @@ class SRResNet(nn.Module):
         else:
             raise NotImplementedError
 
-        if upscale_factor == 2:
+        if scale_factor == 2:
             self.upsample = nn.Sequential(
-                                Interpolate(scale_factor=2, mode="nearest"),    
+                                Interpolate(scale_factor=2, mode=upscale_mode),    
                                 nn.Conv2d(channels, channels,
                                           kernel_size=3, stride=1, padding=1),
                                 nn.LeakyReLU(0.1, True),
                             )
-        elif upscale_factor == 4:
+        elif scale_factor == 4:
             self.upsample = nn.Sequential(
-                                Interpolate(scale_factor=2, mode="nearest"),    
+                                Interpolate(scale_factor=2, mode=upscale_mode),    
                                 nn.Conv2d(channels, channels,
                                           kernel_size=3, stride=1, padding=1),
                                 nn.LeakyReLU(0.1, True),
-                                Interpolate(scale_factor=2, mode="nearest"),    
+                                Interpolate(scale_factor=2, mode=upscale_mode),    
                                 nn.Conv2d(channels, channels,
                                           kernel_size=3, stride=1, padding=1),
                                 nn.LeakyReLU(0.1, True),
@@ -168,7 +169,7 @@ class SRResNet(nn.Module):
     def forward(self, x):
         """
         x: (N, C_in, H, W)
-        out: (N, C_out, upscale_factor * H, upscale_factor * W)
+        out: (N, C_out, scale_factor * H, scale_factor * W)
         """
         out = self.conv_in(x)
         out = self.blocks(out)

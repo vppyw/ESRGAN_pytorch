@@ -22,6 +22,11 @@ class ImgDataset(Dataset):
                             ),
                             transforms.RandomHorizontalFlip(p=0.5), 
                             transforms.RandomVerticalFlip(p=0.5),
+                            transforms.RandomChoice(
+                                (transforms.RandomRotation((90, 90)),
+                                 transforms.RandomRotation((-90, -90))),
+                                p=(0.2, 0.2),
+                            )
                         ])
             self.lr_tfm = transforms.Compose([
                             transforms.RandomChoice(

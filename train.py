@@ -39,15 +39,18 @@ def PSNRtrain(args, model, trainloader, validloader):
             train_psnr = []
             train_ssim = []
             model.train()
-            for lr_imgs, hr_imgs in trainloader:
+            optim.zero_grad()
+            for idx, (lr_imgs, hr_imgs) in enumerate(trainloader):
                 lr_imgs = lr_imgs.to(args.device)
                 hr_imgs = hr_imgs.to(args.device)
                 rec_imgs = model(lr_imgs)
                 loss = loss_fn(rec_imgs, hr_imgs)    
                 train_loss.append(loss.item())
-                optim.zero_grad()
                 loss.backward()
-                optim.step()
+                if (idx + 1) % args.gradient_accumulation_steps == 0 or \
+                    idx == len(trainloader) - 1:
+                    optim.step()
+                    optim.zero_grad()
                 train_psnr.append(PSNR(rec_imgs, hr_imgs).item())
                 train_ssim.append(SSIM(rec_imgs, hr_imgs).item())
             train_loss = np.array(train_loss).mean()
@@ -57,8 +60,8 @@ def PSNRtrain(args, model, trainloader, validloader):
             if args.do_save and not args.do_valid:
                 save_model(model,
                            args.device,
-                           os.path.join(args.ckpt_dir, "psnr"+args.ckpt_file))
-                pbar.write(f"Save psnr{args.ckpt_file} at {epoch}")
+                           args.model_file)
+                pbar.write(f"Save {args.model_file} at {epoch}")
 
         if args.do_valid and epoch % args.valid_epoch == 0:
             with torch.no_grad():
@@ -82,8 +85,8 @@ def PSNRtrain(args, model, trainloader, validloader):
                     min_loss = valid_loss
                     save_model(model,
                                args.device,
-                               os.path.join(args.ckpt_dir, "psnr"+args.ckpt_file))
-                    pbar.write(f"Save psnr{args.ckpt_file} at {epoch}")
+                               args.model_file)
+                    pbar.write(f"Save {args.model_file} at {epoch}")
 
     print("Finish PSNR training")
 
@@ -111,7 +114,8 @@ def GANtrain(args, gene, disc, extr, trainloader, validloader):
             train_gan_d_loss = []
             disc.train()
             gene.eval()
-            for lr_imgs, hr_imgs in trainloader:
+            disc_optim.zero_grad()
+            for idx, (lr_imgs, hr_imgs) in enumerate(trainloader):
                 lr_imgs = lr_imgs.to(args.device)
                 hr_imgs = hr_imgs.to(args.device)
                 gene_imgs = gene(lr_imgs)
@@ -121,9 +125,12 @@ def GANtrain(args, gene, disc, extr, trainloader, validloader):
                                          torch.ones_like(hr_imgs).to(args.device))\
                              + gan_loss_fn(gene_imgs - hr_imgs.mean(),
                                            torch.zeros_like(gene_imgs).to(args.device))
-                disc_optim.zero_grad()
                 gan_d_loss.backward()
-                disc_optim.step()
+
+                if (idx + 1) % args.gradient_accumulation_steps == 0 or \
+                   idx == len(trainloader) - 1:
+                    disc_optim.step()
+                    disc_optim.zero_grad()
                 train_gan_d_loss.append(gan_d_loss.item())
             train_gan_d_loss = np.array(train_gan_d_loss).mean()
             pbar.write(f"|Epoch:{epoch}|Discriminator|train:{train_gan_d_loss}|")
@@ -150,8 +157,7 @@ def GANtrain(args, gene, disc, extr, trainloader, validloader):
         if args.do_save:
             save_model(disc,
                        args.device,
-                       os.path.join(args.ckpt_dir, "disc"+args.ckpt_file))
-
+                       args.disc_file)
         # Generator Training
         if args.do_train:
             train_l1_loss = []
@@ -161,7 +167,8 @@ def GANtrain(args, gene, disc, extr, trainloader, validloader):
             train_ssim = []
             disc.eval()
             gene.train()
-            for lr_imgs, hr_imgs in trainloader:
+            gene_optim.zero_grad()
+            for idx, (lr_imgs, hr_imgs) in enumerate(trainloader):
                 lr_imgs = lr_imgs.to(args.device)
                 hr_imgs = hr_imgs.to(args.device)
                 hr_logits = disc(hr_imgs)
@@ -179,9 +186,11 @@ def GANtrain(args, gene, disc, extr, trainloader, validloader):
                 train_l1_loss.append(l1_loss.item())
                 train_perc_loss.append(perc_loss.item())
                 train_gan_g_loss.append(gan_loss.item())
-                gene_optim.zero_grad()
                 loss.backward()
-                gene_optim.step()
+                if (idx + 1) % args.gradient_accumulation_steps  == 0 or \
+                   idx == len(trainloader) - 1:
+                    gene_optim.step()
+                    gene_optim.zero_grad()
                 train_psnr.append(PSNR(gene_imgs, hr_imgs).item())
                 train_ssim.append(SSIM(gene_imgs, hr_imgs).item())
             train_l1_loss = np.array(train_l1_loss).mean()
@@ -237,23 +246,39 @@ GAN:{valid_gan_g_loss:.5e}|")
         if args.do_save:
             save_model(gene,
                        args.device,
-                       os.path.join(args.ckpt_dir, "gene"+args.ckpt_file))
+                       args.gene_file)
         
 def main(args):
     same_seed(0)
     # Dataloader
     if args.do_train:
-        trainset = hr_dataset.ImgDataset(dirname=args.train_dir, mode="train")
+        trainset = hr_dataset.ImgDataset(dirname=args.train_dir[0],
+                                         mode="train",
+                                         scale_factor=1/args.scale_factor,
+                                         crop_size=args.crop_size)
+        for train_dir in args.train_dir[1:]:
+            trainset = hr_dataset.ImgDataset(dirname=train_dir,
+                                             mode="train",
+                                             scale_factor=1/args.scale_factor,
+                                             crop_size=args.crop_size)
         trainloader = DataLoader(trainset,
-                                 batch_size=args.batch_size,
+                                 batch_size=args.batch_size_per_gpu,
                                  shuffle=True,
                                  num_workers=args.num_workers)
     else:
         trainloader = None
     if args.do_valid:
-        validset = hr_dataset.ImgDataset(dirname=args.valid_dir, mode="valid")
+        validset = hr_dataset.ImgDataset(dirname=args.valid_dir[0],
+                                         mode="valid",
+                                         scale_factor=1/args.scale_factor,
+                                         crop_size=args.crop_size)
+        for valid_dir in args.valid_dir[1:]:
+            validset += hr_dataset.ImgDataset(dirname=valid_dir,
+                                              mode="valid",
+                                              scale_factor=1/args.scale_factor,
+                                              crop_size=args.crop_size)
         validloader = DataLoader(validset,
-                                 batch_size=args.batch_size,
+                                 batch_size=args.batch_size_per_gpu,
                                  shuffle=False,
                                  num_workers=args.num_workers)
     else:
@@ -263,13 +288,15 @@ def main(args):
         if args.load_model != None:
             model = torch.load(args.load_model)
         else:
-            model = sr_models.SRResNet()
+            model = sr_models.SRResNet(scale_factor=args.scale_factor,
+                                       upscale_mode=args.upscale_mode)
         PSNRtrain(args, model, trainloader, validloader)
     elif args.model_type == "gan":
         if args.load_gene != None:
             gene = torch.load(args.load_gene)
         else:
-            gene = sr_models.SRResNet()
+            gene = sr_models.SRResNet(scale_factor=args.scale_factor,
+                                      upscale_mode=args.upscale_mode)
         if args.load_disc != None:
             disc = torch.load(args.load_disc)
         else:
@@ -289,15 +316,14 @@ def parse_args():
     parser.add_argument("--num_workers", type=int, default=1)
 
     # Environment
-    parser.add_argument("--train_dir", type=str, default=None)
-    parser.add_argument("--valid_dir", type=str, default=None)
-    parser.add_argument("--test_dir", type=str, default=None)
+    parser.add_argument("--train_dir", type=str, default=None, nargs="*")
+    parser.add_argument("--valid_dir", type=str, default=None, nargs="*")
+    parser.add_argument("--test_dir", type=str, default=None, nargs="*")
     
     parser.add_argument("--do_train", action="store_true")
     parser.add_argument("--do_valid", action="store_true")
     parser.add_argument("--do_test", action="store_true")
     parser.add_argument("--valid_epoch", type=int, default=1)
-
 
     # Load model
     parser.add_argument("--load_model", type=str, default=None)
@@ -307,15 +333,18 @@ def parse_args():
 
     # Save model
     parser.add_argument("--do_save", action="store_true")
-    parser.add_argument("--ckpt_dir", type=str, default="./ckpt/")
-    parser.add_argument("--ckpt_file", type=str, default="_ckpt.pt")
+    parser.add_argument("--model_file", type=str, default="model.pt")
+    parser.add_argument("--gene_file", type=str, default="gene.pt")
+    parser.add_argument("--disc_file", type=str, default="disc.pt")
 
     # Hyperparameters
     parser.add_argument("--model_type", type=str, required=True)
-    parser.add_argument("--batch_size", type=int, default=32)
+    parser.add_argument("--batch_size_per_gpu", type=int, default=32)
+    parser.add_argument("--gradient_accumulation_steps", type=int, default=1)
     parser.add_argument("--num_epoch", type=int, default=512)
     parser.add_argument("--scale_factor", type=int, default=2)
-    parser.add_argument("--crop_size", type=int, default=128)
+    parser.add_argument("--upscale_mode", type=str, default="nearest")
+    parser.add_argument("--crop_size", type=int, default=256)
     parser.add_argument("--lr", type=float, default=1e-4)
 
     args = parser.parse_args()
