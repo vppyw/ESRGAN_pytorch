@@ -26,6 +26,15 @@ class DenseBlock(nn.Module):
         self.lrelu = nn.LeakyReLU(0.1, True)
         self.dropout = nn.Dropout(p=dropout)
         self.beta = beta
+        self.low_init_weights()
+
+    def low_init_weights(self):
+        for module in self.modules():
+            if isinstance(module, nn.Conv2d):
+                nn.init.kaiming_normal_(module.weight)
+                module.weight.data *= 0.1
+                if module.bias is not None:
+                    nn.init.constant_(module.bias, 0)
 
     def forward(self, x: torch.Tensor):
         """
@@ -60,8 +69,8 @@ class RRDB(nn.Module):
         out: (N, C, H, W)
         """
         out = self.db1(x)
-        out = self.db2(x)
-        out = self.db3(x)
+        out = self.db2(torch.add(x, torch.mul(out, self.beta)))
+        out = self.db3(torch.add(x, torch.mul(out, self.beta)))
         out = torch.add(x, torch.mul(out, self.beta))
         return out
 
@@ -85,6 +94,15 @@ class ResidualBlock(nn.Module):
                 nn.Conv2d(channels, in_channels,
                           kernel_size=3, stride=1, padding=1),
             )
+        self.low_init_weights()
+
+    def low_init_weights(self):
+        for module in self.modules():
+            if isinstance(module, nn.Conv2d):
+                nn.init.kaiming_normal_(module.weight)
+                module.weight.data *= 0.1
+                if module.bias is not None:
+                    nn.init.constant_(module.bias, 0)
 
     def forward(self, x: torch.Tensor):
         """
@@ -93,31 +111,15 @@ class ResidualBlock(nn.Module):
         """
         return torch.add(x, self.net(x))
         
-class Interpolate(nn.Module):
-    def __init__(self, size=None, scale_factor=None, mode="bicubic"):
-        """
-        make nn.Module work as torch.nn.functional.interpolate
-        """
-        super().__init__()
-        self.size = size
-        self.scale_factor = scale_factor
-        self.mode = mode
-        
-    def forward(self, x):
-        return F.interpolate(x,
-                             size=self.size,
-                             scale_factor=self.scale_factor,
-                             mode=self.mode)
-        
 class SRResNet(nn.Module):
     def __init__(self,
                  in_channels: int=3,
                  out_channels: int=3,
-                 channels: int=32,
+                 channels: int=64,
                  growth_rate: int=32,
                  dropout: float=0.0,
                  beta: float=0.2,
-                 num_blocks: int=16,
+                 num_blocks: int=23,
                  block_type: str="rrdb",
                  scale_factor: int=4,
                  upscale_mode: str="nearest"):
@@ -138,18 +140,24 @@ class SRResNet(nn.Module):
 
         if scale_factor == 2:
             self.upsample = nn.Sequential(
-                                Interpolate(scale_factor=2, mode=upscale_mode),    
+                                nn.Upsample(scale_factor=2, mode=upscale_mode),    
                                 nn.Conv2d(channels, channels,
                                           kernel_size=3, stride=1, padding=1),
                                 nn.LeakyReLU(0.1, True),
                             )
         elif scale_factor == 4:
             self.upsample = nn.Sequential(
-                                Interpolate(scale_factor=2, mode=upscale_mode),    
+                                nn.Upsample(scale_factor=2, mode=upscale_mode),    
                                 nn.Conv2d(channels, channels,
                                           kernel_size=3, stride=1, padding=1),
                                 nn.LeakyReLU(0.1, True),
-                                Interpolate(scale_factor=2, mode=upscale_mode),    
+                                nn.Conv2d(channels, channels,
+                                          kernel_size=3, stride=1, padding=1),
+                                nn.LeakyReLU(0.1, True),
+                                nn.Upsample(scale_factor=2, mode=upscale_mode),    
+                                nn.Conv2d(channels, channels,
+                                          kernel_size=3, stride=1, padding=1),
+                                nn.LeakyReLU(0.1, True),
                                 nn.Conv2d(channels, channels,
                                           kernel_size=3, stride=1, padding=1),
                                 nn.LeakyReLU(0.1, True),
@@ -166,17 +174,19 @@ class SRResNet(nn.Module):
                         )
         self.low_init_weights()
 
-    def forward(self, x):
+    def forward(self, x, return_hidden=False):
         """
         x: (N, C_in, H, W)
         out: (N, C_out, scale_factor * H, scale_factor * W)
         """
-        out = self.conv_in(x)
-        out = self.blocks(out)
-        out = self.upsample(out)
-        out = self.conv_out(out)
-        out = torch.clamp_(out, 0.0, 1.0)
-        return out
+        if return_hidden:
+            pass
+        else:
+            out = self.conv_in(x)
+            out = self.blocks(out)
+            out = self.upsample(out)
+            out = self.conv_out(out)
+            return out
 
     def low_init_weights(self):
         for module in self.modules():
@@ -215,8 +225,8 @@ class Discriminator(nn.Module):
 class VGG19(nn.Module):
     def __init__(self):
         super().__init__()
-        pre_vgg19 = vgg19(weights=None)
-        # pre_vgg19 = vgg19(weights=VGG19_Weights)
+        # pre_vgg19 = vgg19(weights=None)
+        pre_vgg19 = vgg19(weights=VGG19_Weights.DEFAULT)
         self.h_features = pre_vgg19.features[:3]
         self.l_features = pre_vgg19.features[3:22]
 

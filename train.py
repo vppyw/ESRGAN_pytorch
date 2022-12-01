@@ -1,4 +1,5 @@
 import os
+import json
 import numpy as np
 
 import torch
@@ -30,6 +31,16 @@ def save_model(model, device: str, f_name: str):
 def PSNRtrain(args, model, trainloader, validloader):
     model = model.to(args.device)
     optim = torch.optim.Adam(model.parameters(), lr=args.lr)
+    if args.do_steplr:
+        if args.steplr_mode == "batch":
+            scheduler = torch.optim.lr_scheduler.StepLR(optimizer=optim,
+                                                        step_size=args.steplr_step_size * len(trainloader),
+                                                        gamma=args.steplr_gamma)
+        else:
+            scheduler = torch.optim.lr_scheduler.StepLR(optimizer=optim,
+                                                        step_size=args.steplr_step_size,
+                                                        gamma=args.steplr_gamma)
+
     loss_fn = nn.L1Loss()
     min_loss = float('inf')
     pbar = tqdm(range(args.num_epoch), ncols=50)
@@ -50,6 +61,8 @@ def PSNRtrain(args, model, trainloader, validloader):
                 if (idx + 1) % args.gradient_accumulation_steps == 0 or \
                     idx == len(trainloader) - 1:
                     optim.step()
+                    if args.do_steplr:
+                        scheduler.step()
                     optim.zero_grad()
                 train_psnr.append(PSNR(rec_imgs, hr_imgs).item())
                 train_ssim.append(SSIM(rec_imgs, hr_imgs).item())
@@ -103,9 +116,16 @@ def GANtrain(args, gene, disc, extr, trainloader, validloader):
     perc_loss_fn = nn.MSELoss()
     min_g_loss = float('inf')
 
-    # Criterion
-    gene_optim = torch.optim.Adam(gene.parameters(), lr=1e-4)
-    disc_optim = torch.optim.Adam(disc.parameters(), lr=1e-4)
+    # Optimizer
+    gene_optim = torch.optim.Adam(gene.parameters(), lr=args.lr)
+    disc_optim = torch.optim.Adam(disc.parameters(), lr=args.lr)
+    if args.do_steplr:
+        gene_scheduler = torch.optim.lr_scheduler.StepLR(gene_optim,
+                                                         args.steplr_step_size,
+                                                         args.steplr_gamma)
+        disc_scheduler = torch.optim.lr_scheduler.StepLR(disc_optim,
+                                                         args.steplr_step_size,
+                                                         args.steplr_gamma)
 
     pbar = tqdm(range(args.num_epoch), ncols=50)
     for epoch in pbar:
@@ -126,12 +146,14 @@ def GANtrain(args, gene, disc, extr, trainloader, validloader):
                              + gan_loss_fn(gene_imgs - hr_imgs.mean(),
                                            torch.zeros_like(gene_imgs).to(args.device))
                 gan_d_loss.backward()
-
                 if (idx + 1) % args.gradient_accumulation_steps == 0 or \
                    idx == len(trainloader) - 1:
                     disc_optim.step()
+                    if args.do_steplr:
+                        disc_scheduler.step()
                     disc_optim.zero_grad()
                 train_gan_d_loss.append(gan_d_loss.item())
+
             train_gan_d_loss = np.array(train_gan_d_loss).mean()
             pbar.write(f"|Epoch:{epoch}|Discriminator|train:{train_gan_d_loss}|")
 
@@ -154,10 +176,12 @@ def GANtrain(args, gene, disc, extr, trainloader, validloader):
                     valid_gan_d_loss.append(gan_d_loss.item())
                 valid_gan_d_loss = np.array(valid_gan_d_loss).mean()
                 pbar.write(f"|Epoch:{epoch}|Discriminator|valid:{valid_gan_d_loss}|")
+        
         if args.do_save:
             save_model(disc,
                        args.device,
                        args.disc_file)
+
         # Generator Training
         if args.do_train:
             train_l1_loss = []
@@ -182,7 +206,10 @@ def GANtrain(args, gene, disc, extr, trainloader, validloader):
                                        torch.zeros_like(hr_logits))\
                          + gan_loss_fn(gene_logits - hr_logits.mean(),
                                        torch.ones_like(gene_logits))
-                loss = l1_loss + perc_loss + gan_loss
+                loss = args.alpha * l1_loss + \
+                       args.beta * perc_loss + \
+                       args.gamma * gan_loss
+
                 train_l1_loss.append(l1_loss.item())
                 train_perc_loss.append(perc_loss.item())
                 train_gan_g_loss.append(gan_loss.item())
@@ -190,9 +217,12 @@ def GANtrain(args, gene, disc, extr, trainloader, validloader):
                 if (idx + 1) % args.gradient_accumulation_steps  == 0 or \
                    idx == len(trainloader) - 1:
                     gene_optim.step()
+                    if args.do_steplr:
+                        gene_scheduler.step()
                     gene_optim.zero_grad()
                 train_psnr.append(PSNR(gene_imgs, hr_imgs).item())
                 train_ssim.append(SSIM(gene_imgs, hr_imgs).item())
+
             train_l1_loss = np.array(train_l1_loss).mean()
             train_perc_loss = np.array(train_perc_loss).mean()
             train_gan_g_loss = np.array(train_gan_g_loss).mean()
@@ -243,6 +273,7 @@ GAN:{train_gan_g_loss:.5e}|")
 Perceptual:{valid_perc_loss:.5e}|\
 GAN:{valid_gan_g_loss:.5e}|")
                 pbar.write(f"|PSNR:{valid_psnr}|SSIM:{valid_ssim}|")
+
         if args.do_save:
             save_model(gene,
                        args.device,
@@ -250,6 +281,19 @@ GAN:{valid_gan_g_loss:.5e}|")
         
 def main(args):
     same_seed(0)
+    os.makedirs(args.cache, exist_ok=True)
+    torch.hub.set_dir(args.cache)
+
+    with open(args.config_file, "w") as f:
+            f.write(f"{json.dumps(vars(args), indent=4)}\n")
+
+    if args.do_save:
+        args.model_file = os.path.join(args.save_dir,
+                                       args.model_file)
+        args.gene_file = os.path.join(args.save_dir,
+                                      args.gene_file)
+        args.disc_file = os.path.join(args.save_dir,
+                                      args.disc_file)
     # Dataloader
     if args.do_train:
         trainset = hr_dataset.ImgDataset(dirname=args.train_dir[0],
@@ -257,7 +301,7 @@ def main(args):
                                          scale_factor=1/args.scale_factor,
                                          crop_size=args.crop_size)
         for train_dir in args.train_dir[1:]:
-            trainset = hr_dataset.ImgDataset(dirname=train_dir,
+            trainset += hr_dataset.ImgDataset(dirname=train_dir,
                                              mode="train",
                                              scale_factor=1/args.scale_factor,
                                              crop_size=args.crop_size)
@@ -267,6 +311,7 @@ def main(args):
                                  num_workers=args.num_workers)
     else:
         trainloader = None
+
     if args.do_valid:
         validset = hr_dataset.ImgDataset(dirname=args.valid_dir[0],
                                          mode="valid",
@@ -316,6 +361,7 @@ def parse_args():
     parser.add_argument("--num_workers", type=int, default=1)
 
     # Environment
+    parser.add_argument("--cache", type=str, default="./cache")
     parser.add_argument("--train_dir", type=str, default=None, nargs="*")
     parser.add_argument("--valid_dir", type=str, default=None, nargs="*")
     parser.add_argument("--test_dir", type=str, default=None, nargs="*")
@@ -333,6 +379,8 @@ def parse_args():
 
     # Save model
     parser.add_argument("--do_save", action="store_true")
+    parser.add_argument("--config_file", type=str, default="config.json")
+    parser.add_argument("--save_dir", type=str, default="ckpt/")
     parser.add_argument("--model_file", type=str, default="model.pt")
     parser.add_argument("--gene_file", type=str, default="gene.pt")
     parser.add_argument("--disc_file", type=str, default="disc.pt")
@@ -346,6 +394,13 @@ def parse_args():
     parser.add_argument("--upscale_mode", type=str, default="nearest")
     parser.add_argument("--crop_size", type=int, default=256)
     parser.add_argument("--lr", type=float, default=1e-4)
+    parser.add_argument("--do_steplr", action="store_true")
+    parser.add_argument("--steplr_step_size", type=int)
+    parser.add_argument("--steplr_gamma", type=float, default=0.5)
+    parser.add_argument("--steplr_mode", type=str, default="batch")
+    parser.add_argument("--alpha", type=float, default=1)
+    parser.add_argument("--beta", type=float, default=1)
+    parser.add_argument("--gamma", type=float, default=1)
 
     args = parser.parse_args()
     return args
