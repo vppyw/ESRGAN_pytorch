@@ -76,6 +76,17 @@ This repo is my implementation about [ESRGAN](https://github.com/xinntao/ESRGAN)
     ```bash
     python3 gen_interpolate.py
     ```
+    ![interpolate_result](./inter_result/inter_img_001.png)
+   
+## Result
+
+  - SResnet with RRDB
+    ![SRResnet with RRDB](./psnr_result/Set14/1.png)
+
+  - ESRGAN
+    ![EESRGAN](./gan_result/Set14/1.png)
+    
+
 
 ## package requirements
 
