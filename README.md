@@ -13,22 +13,26 @@ This repo is my implementation about [ESRGAN](https://github.com/xinntao/ESRGAN)
   ├── README.md
   ├── requirements.txt
   ├── sr_models.py
-  ├── train_gan.sh
-  ├── train_psnr.sh
-  └── train.py
+  ├── kd_utils.py
+  ├── run_kd.py
+  ├── run_esrgan.py
+  ├── run_kd.py
+  ├── gen_lr2hr.py
+  ├── gen_interpolate.py
+  └── interpolate_model.py
   ```
 
 ## Train SISR task
   - Train PSNR-based model
 
     ```bash
-    python3 train.py --model_type psnr
+    python3 run_esrgan.py --model_type psnr
     ```
 
   - Train GAN-based model
 
     ```bash
-    python3 train.py --model_type gan
+    python3 run_esrgan.py --model_type gan
     ```
 
   - For more details
@@ -36,10 +40,16 @@ This repo is my implementation about [ESRGAN](https://github.com/xinntao/ESRGAN)
     ```bash
     python3 train.py --help
     ```
+  
+  - KD SRResnet by Attention Map
+    
+    ```bash
+    python3 run_kd.py --help
+    ```
 
 ## Evaluate single Image performance (PSNR/SSIM)
 
-  ```
+  ```bash
   python3 metrics.py \
       --lr_img LR_IMG \
       --hr_img HR_IMG \
@@ -49,9 +59,23 @@ This repo is my implementation about [ESRGAN](https://github.com/xinntao/ESRGAN)
 
   To see more details.
 
-  ```
+  ```bash
   python3 metrics.py --help
   ```
+
+## HR generation 
+
+  - Generate HR from LR
+
+    ```bash
+    python3 gen_lr2hr.py
+    ```
+
+  - Generate model interpolate result 
+
+    ```bash
+    python3 gen_interpolate.py
+    ```
 
 ## package requirements
 
