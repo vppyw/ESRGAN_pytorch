@@ -334,7 +334,9 @@ def main(args):
             model = torch.load(args.load_model)
         else:
             model = sr_models.SRResNet(scale_factor=args.scale_factor,
-                                       upscale_mode=args.upscale_mode)
+                                       upscale_mode=args.upscale_mode,
+                                       channels=args.channels,
+                                       growth_rate=args.growth_rate)
         PSNRtrain(args, model, trainloader, validloader)
     elif args.model_type == "gan":
         if args.load_gene != None:
@@ -392,6 +394,8 @@ def parse_args():
     parser.add_argument("--num_epoch", type=int, default=512)
     parser.add_argument("--scale_factor", type=int, default=2)
     parser.add_argument("--upscale_mode", type=str, default="nearest")
+    parser.add_argument("--channels", type=int, default=64)
+    parser.add_argument("--growth_rate", type=int, default=32)
     parser.add_argument("--crop_size", type=int, default=256)
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--do_steplr", action="store_true")

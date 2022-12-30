@@ -17,6 +17,8 @@ def torch_rgb2ycrcb(img):
     return out.to(device)
 
 def main(args):
+    if args.do_save:
+        os.makedirs(args.result_dir, exist_ok=True)
     if args.mode == "single":
         with torch.no_grad():
             hr_img = (torchvision.io.read_image(args.hr_img)\
@@ -49,12 +51,10 @@ def main(args):
             ssim = []
             hr_fnames = os.listdir(args.img_dir)
             for idx, hr_fname in enumerate(tqdm(hr_fnames, ncols=50)):
-                hr_fname = os.path.join(args.img_dir, hr_fname)
-                hr_img = (torchvision.io.read_image(hr_fname,
-                                                    mode=torchvision.io.ImageReadMode.RGB)\
-                                                    .float()\
-                                                    .to(args.device))\
-                                                    .unsqueeze(dim=0) / 255
+                hr_img = torchvision.io.read_image(
+                            os.path.join(args.img_dir, hr_fname),
+                            mode=torchvision.io.ImageReadMode.RGB
+                         ).div(255).float().to(args.device).unsqueeze(dim=0)
 
                 if hr_img.size(-1) % args.scale_factor != 0:
                     hr_img = hr_img[:,:,:,:-(hr_img.size(-1) % args.scale_factor)]
@@ -74,8 +74,10 @@ def main(args):
                     ssim.append(SSIM(rec_img_y, hr_img_y).item())
                 if args.do_save:
                     rec_img = 255 * rec_img.squeeze()
-                    torchvision.io.write_png(rec_img.to(torch.uint8).to("cpu"),
-                                             os.path.join(args.result_dir, f"{idx}.png"))
+                    torchvision.io.write_png(
+                        rec_img.to(torch.uint8).to("cpu"),
+                        os.path.join(args.result_dir, f"result_{hr_fname}")
+                    )
             print(f"PSNR: {np.array(psnr).mean()}")
             print(f"SSIM: {np.array(ssim).mean()}")
     else:

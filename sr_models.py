@@ -179,8 +179,18 @@ class SRResNet(nn.Module):
         x: (N, C_in, H, W)
         out: (N, C_out, scale_factor * H, scale_factor * W)
         """
+        output = []
         if return_hidden:
-            pass
+            output.append(self.conv_in(x))
+            blocks = list(self.blocks.children())
+            for block in blocks:
+                output.append(block(output[-1]))
+            output.append(
+                self.conv_out(
+                    self.upsample(output[-1])
+                )
+            )
+            return tuple(output)
         else:
             out = self.conv_in(x)
             out = self.blocks(out)
